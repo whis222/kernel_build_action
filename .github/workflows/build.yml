@@ -1,0 +1,31 @@
+name: Build Kernel
+on:
+  workflow_dispatch:
+
+jobs:
+  Build-Kernel:
+    strategy:
+      fail-fast: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Build Kernel
+      uses: whis222/kernel_build_action@main
+      with:
+          kernel-url: https://github.com/whis222/android_kernel_realme_RMX3031
+          kernel-dir: kernel
+          kernel-branch: "13.0"
+          config: cupida_defconfig
+          arch: arm64
+          other-clang-url: https://github.com/kdrag0n/proton-clang
+          other-clang-branch: master
+          ksu: false
+          python-27: false
+          lxc: true
+          lxc-patch: false
+          nethunter: true
+          nethunter-patch: true
+          kvm: true
+          extra-cmd: "CROSS_COMPILE=$CLANG_PATH/bin/aarch64-linux-gnu- COMPILE_ARM32=$CLANG_PATH/bin/arm-linux-gnueabi- LD=$CLANG_PATH/bin/ld.lld AR=$CLANG_PATH/bin/llvm-ar NM=$CLANG_PATH/bin/llvm-nm OBJCOPY=$CLANG_PATH/bin/llvm-objcopy OBJDUMP=$CLANG_PATH/bin/llvm-objdump READELF=$CLANG_PATH/bin/llvm-readelf OBJSIZE=$CLANG_PATH/bin/llvm-size STRIP=$CLANG_PATH/bin/llvm-strip LDGOLD=$CLANG_PATH/bin/aarch64-linux-gnu-ld.gold LLVM_AR=$CLANG_PATH/bin/llvm-ar LLVM_DIS=$CLANG_PATH/bin/llvm-dis CC=$CLANG_PATH/bin/clang"
