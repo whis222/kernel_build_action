@@ -116,10 +116,10 @@ runs:
 
          echo "::endgroup::"
 
-             echo "::group:: Downloading 3rd clang"
-             export OTHER_CLANG_URL=${{ inputs.other-clang-url }}
-             mkdir clang
-             git clone --recursive "$OTHER_CLANG_URL" $HOME/clang --depth=1 -b ${{ inputs.other-clang-branch }}
+         echo "::group:: Downloading 3rd clang"
+         export OTHER_CLANG_URL=${{ inputs.other-clang-url }}
+         mkdir clang
+         git clone --recursive "$OTHER_CLANG_URL" $HOME/clang --depth=1 -b ${{ inputs.other-clang-branch }}
          echo "::endgroup::"
 
          if [ ${{ inputs.python-27 }} = true ]; then
