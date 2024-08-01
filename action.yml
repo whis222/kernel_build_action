@@ -1,0 +1,260 @@
+name: 'Android Kernel Build Action'
+description: "A action to built android kernel."
+
+branding:
+  icon: 'activity'
+  color: 'blue'
+
+inputs:
+  kernel-url:
+    description: 'Kernel Source Url'
+    required: true
+  vendor-url:
+    description: 'Kernel Vendor Source Url'
+    required: false
+  kernel-dir:
+    required: false
+    default: kernel
+  vendor-dir:
+    required: false
+    default: vendor
+  kernel-branch:
+    description: 'Branch name'
+    required: false
+    default: main
+  vendor-branch:
+    required: false
+    default: main
+  config:
+    description: 'configuration for building android kernel'
+    required: true
+    default: defconfig
+  arch:
+    required: true
+    default: arm64
+  ksu:
+    description: 'KernelSU function support'
+    required: false
+    default: false
+  ksu-version:
+    description: 'KernelSU default branch'
+    required: true
+    default: "v0.9.4"
+  ksu-lkm:
+    description: "Build KernelSU as a loadable kernel module"
+    required: false
+    default: false
+  disable-lto:
+    description: 'Disable LTO configs for configs.'
+    required: false
+    default: false
+  lxc:
+    description: 'Enable lxc and docker configs for configs.'
+    required: false
+    default: false
+  lxc-patch:
+    description: 'Apply lxc patch aviod not booting'
+    required: false
+    default: false
+  nethunter:
+    description: 'Enable Kali nethunter'
+    required: false
+    default: false
+  nethunter-patch:
+    description: 'patch config'
+    required: false
+    default: false
+  kvm:
+    description: 'Enable KVM for configs.'
+    required: false
+    default: false
+  other-clang-url:
+    required: true
+    default: ''
+  other-clang-branch:
+    required: true
+    default: master
+  python-27:
+    description: 'Use python2.7 when build kernel.'
+    required: false
+    default: false
+  extra-cmd:
+    description: 'Extra options of building kernel.'
+    required: true
+    default: ""
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Build Kernel
+      shell: bash
+      run: |
+         ########
+         if [[ ${GITHUB_ACTIONS} != "true" || ${OSTYPE} != "linux-gnu" || ! -f /bin/apt || "$(id -u)" -eq 0 ]]; then
+             printf "This Action Is Intended For non-root Ubuntu Runner.\n"
+             exit 127
+         fi
+
+         echo "::group:: Installing Building Depend Packages"
+         sudo apt-get update
+         sudo apt-get install --no-install-recommends -y binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi git automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python3 aria2
+         aria2c -q https://raw.githubusercontent.com/Homebrew/install/master/uninstall.sh && NONINTERACTIVE=1 bash ./uninstall.sh -f -q
+         echo "::endgroup::"
+
+         if [ -f /bin/swapon ]; then
+             echo "::group:: Setting Up Swap"
+             export SWAP_FILE=$(swapon --show=NAME | tail -n 1)
+             sudo swapoff $SWAP_FILE
+             sudo rm $SWAP_FILE
+             sudo fallocate -l 16G $SWAP_FILE
+             sudo chmod 600 $SWAP_FILE
+             sudo mkswap $SWAP_FILE
+             sudo swapon $SWAP_FILE
+             unset SWAP_FILE
+             echo "::endgroup::"
+         fi
+
+         echo "::endgroup::"
+
+             echo "::group:: Downloading 3rd clang"
+             export OTHER_CLANG_URL=${{ inputs.other-clang-url }}
+             mkdir clang
+             git clone --recursive "$OTHER_CLANG_URL" $HOME/clang --depth=1 -b ${{ inputs.other-clang-branch }}
+         echo "::endgroup::"
+
+         if [ ${{ inputs.python-27 }} = true ]; then
+             echo "::group:: Installing Python2.7 instead Python3"
+             if ! sudo apt-cache search python2.7 | grep -i python2.7 >>/dev/null; then
+                 echo "deb [trusted=yes] https://deb.debian.org/debian/ bullseye main contrib non-free" | sudo tee -a /etc/apt/sources.list >/dev/null
+                 sudo apt-get update
+             fi
+             sudo apt-get install -y python2.7 python2.7-minimal
+             test -f /bin/python && sudo rm -v /bin/python
+             test -f /bin/python || sudo ln -v -s /bin/python2.7 /bin/python
+             test -f /bin/python2 || sudo ln -v -s /bin/python2.7 /bin/python2
+             echo "::endgroup::"
+             grep -i "bullseye" /etc/apt/sources.list >>/dev/null && sudo sed '$d' /etc/apt/sources.list >>/dev/null
+         fi
+
+
+         echo "::group:: Pulling Kernel Source"
+         git clone --recursive ${{ inputs.kernel-url }} -b "${{ inputs.kernel-branch }}" --depth=1 kernel/${{ inputs.kernel-dir }}
+         echo "::endgroup::"
+
+         if [ ! -z  "${{ inputs.vendor-url }}" ]; then
+             echo "::group:: Pulling Kernel vendor source"
+             git clone ${{ inputs.vendor-url }} --depth=1 kernel/${{ inputs.vendor-dir }} -b ${{ inputs.vendor-branch }}
+             test -d kernel/${{ inputs.vendor-dir }}/vendor && cp -rv kernel/${{ inputs.vendor-dir }}/vendor kernel
+             test -d kernel/${{ inputs.vendor-dir }}/vendor && cp -rv kernel/${{ inputs.vendor-dir }}/vendor ./
+             echo "::endgroup::"
+         fi
+
+         cd kernel/${{ inputs.kernel-dir }}
+         export SUBLEVEL=$(cat Makefile | grep "PATCHLEVEL =" | awk '{print $3}')
+         function version_gt() { test "$(echo -e "$1\n$2" | sort -V | tail -n1)" == "$1"; }
+
+         if [ ${{ inputs.ksu }} = true ]; then
+            echo "::group:: Initializing KernelSU"
+            if [ -f KernelSU/kernel/Kconfig ]; then
+                echo "KernelSU has been initialized,skipped."
+            else
+                if [[ "${{ inputs.ksu-version }}" == "main" ]] || version_gt "${{ inputs.ksu-version }}" "v0.9.5"; then
+                    printf "Warning: The KernelSU version you selected was detected to be ${{ inputs.ksu-version }}, but KernelSU has dropped support for the non-gki kernel since 0.9.5. \n This will force switch to v0.9.5."
+                    export KVER=v0.9.5
+                else
+                    export KVER=${{ inputs.ksu-version }}
+                fi
+                    curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s "$KVER"
+            fi
+            if [ ${{ inputs.ksu-lkm }} = true ]; then
+                if grep -q "CONFIG_KPROBES=y" "arch/${{ inputs.arch }}/configs/${{ inputs.config }}" ; then
+                    sed -i 's/CONFIG_KSU=y/CONFIG_KSU=m/g' "arch/${{ inputs.arch }}/configs/${{ inputs.config }}"
+                else
+                    #echo "CONFIG_KSU=m" | tee -a arch/${{ inputs.arch }}/configs/${{ inputs.config }}
+                    sed -i '/config KSU/,/help/{s/default y/default m/}' common/drivers/kernelsu/Kconfig
+                fi
+            else
+                if grep -q "CONFIG_KPROBES=y" "arch/${{ inputs.arch }}/configs/${{ inputs.config }}" ; then
+                    echo "CONFIG_KPROBES is enabled, skip patch."
+                else
+                    curl -SsL https://raw.githubusercontent.com/whis222/kernel_build_action/main/kernelsu/ksupatch.sh | bash
+                fi
+            fi
+            echo "::endgroup::"
+         fi
+
+         if [ ${{ inputs.nethunter }} = true ]; then
+             echo "::group:: Initializing Kali nethunter"
+             aria2c https://raw.githubusercontent.com/whis222/Kali-defconfig-checker/master/check-kernel-config
+             bash check-kernel-config ${{ inputs.config }} -w
+             if [ ${{ inputs.nethunter-patch }} = true ]; then
+                 aria2c https://github.com/whis222/kali-nethunter_patches/raw/main/add-wifi-injection.patch
+                 git apply add-wifi-injection.patch
+                 aria2c https://github.com/whis222/kali-nethunter_patches/raw/main/fix-ath9k-naming-conflict.patch
+                 git apply fix-ath9k-naming-conflict.patch
+                 if [ "$SUBLEVEL" -lt "19" ]; then
+                     aria2c https://github.com/whis222/kali-nethunter_patches/raw/main/add-wifi-injection-4.14.patch
+                     git apply add-wifi-injection-4.14.patch
+                 fi
+             else
+                  echo "skip patch"
+             fi
+             echo "::endgroup::"
+         fi
+
+         if [ ${{ inputs.disable-lto }} = true ]; then
+             if grep -q "LTO" "arch/${{ inputs.arch }}/configs/${{ inputs.config }}"
+             then
+                  sed -i 's/CONFIG_LTO=y/CONFIG_LTO=n/' arch/${{ inputs.arch }}/configs/${{ inputs.config }} 
+                  sed -i 's/CONFIG_LTO_CLANG=y/CONFIG_LTO_CLANG=n/' arch/${{ inputs.arch }}/configs/${{ inputs.config }} 
+                  sed -i 's/CONFIG_THINLTO=y/CONFIG_THINLTO=n/' arch/${{ inputs.arch }}/configs/${{ inputs.config }} 
+                  echo "CONFIG_LTO_NONE=y" | tee -a arch/${{ inputs.arch }}/configs/${{ inputs.config }} >/dev/null
+             fi
+         fi
+
+         if [ ${{ inputs.kvm }} = true ]; then
+            echo "CONFIG_VIRTUALIZATION=y" | tee -a arch/${{ inputs.arch }}/configs/${{ inputs.config }} >/dev/null
+            echo "CONFIG_KVM=y" | tee -a arch/${{ inputs.arch }}/configs/${{ inputs.config }} >/dev/null
+            echo "CONFIG_KVM_MMIO=y" | tee -a arch/${{ inputs.arch }}/configs/${{ inputs.config }} >/dev/null
+            echo "CONFIG_KVM_ARM_HOST=y" | tee -a arch/${{ inputs.arch }}/configs/${{ inputs.config }} >/dev/null
+         fi
+
+         if [ ${{ inputs.lxc }} = true ]; then
+             echo "::group:: Enabling LXC"
+             aria2c https://raw.githubusercontent.com/whis222/android-lxc-docker/main/LXC-DOCKER-OPEN-CONFIG.sh
+             bash LXC-DOCKER-OPEN-CONFIG.sh ${{ inputs.config }} -w
+             grep -q "CONFIG_ANDROID_PARANOID_NETWORK" "arch/${{ inputs.arch }}/configs/${{ inputs.config }}" && sed -i 's/CONFIG_ANDROID_PARANOID_NETWORK=y/#CONFIG_ANDROID_PARANOID_NETWORK=y/' arch/${{ inputs.arch }}/configs/${{ inputs.config }}
+             if [ ${{ inputs.lxc-patch }} = true ]; then
+                 aria2c https://raw.githubusercontent.com/whis222/android-lxc-docker/main/cgroup.patch
+                 patch kernel/cgroup/cgroup.c < cgroup.patch
+                 aria2c https://raw.githubusercontent.com/whis222/android-lxc-docker/main/xt_qtaguid.patch
+                 patch net/netfilter/xt_qtaguid.c < xt_qtaguid.patch
+             else
+                 echo skip lxc patch
+             fi
+             echo "::endgroup::"
+         fi
+
+         echo "::group:: Building Kernel with selected cross compiler"
+         mkdir out -p -v
+         export CLANG_PATH=$HOME/clang
+         COMMAND="make -j$(nproc --all) ${{ inputs.config }} ARCH=${{ inputs.arch }} all O=out"
+         COMMAND+=" ${{ inputs.extra-cmd }}"
+         ${COMMAND}
+         echo "::endgroup::"
+         unset CLANG_TRIPLE COMPILE_ARM32 CROSS_COMPILE CLANG_PATH HOMES SUBLEVEL KVER COMMAND
+
+    - id: upload-image
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel.image
+        path: /home/runner/work/kernel_build_action/kernel_build_action/kernel/kernel/out/arch/${{ inputs.arch }}/boot/Image
+        if-no-files-found: error
+        overwrite: true
+
+posts:
+  using: 'composite'
+  steps:
+    - name: post
+      shell: bash
+      run:  $HOME/clang/bin/clang --version
