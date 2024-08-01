@@ -27,7 +27,7 @@ on:
       delete_run_by_conclusion_pattern:
         description: "Remove workflow by conclusion: action_required, cancelled, failure, skipped, success"
         required: true
-        default: "All"
+        default: "failure"
         type: choice
         options:
           - "All"
