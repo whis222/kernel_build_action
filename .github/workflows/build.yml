@@ -26,6 +26,6 @@ jobs:
           lxc: true
           lxc-patch: false
           nethunter: true
-          nethunter-patch: true
+          nethunter-patch: false
           kvm: true
           extra-cmd: "CROSS_COMPILE=$CLANG_PATH/bin/aarch64-linux-gnu- COMPILE_ARM32=$CLANG_PATH/bin/arm-linux-gnueabi- LD=$CLANG_PATH/bin/ld.lld AR=$CLANG_PATH/bin/llvm-ar NM=$CLANG_PATH/bin/llvm-nm OBJCOPY=$CLANG_PATH/bin/llvm-objcopy OBJDUMP=$CLANG_PATH/bin/llvm-objdump READELF=$CLANG_PATH/bin/llvm-readelf OBJSIZE=$CLANG_PATH/bin/llvm-size STRIP=$CLANG_PATH/bin/llvm-strip LDGOLD=$CLANG_PATH/bin/aarch64-linux-gnu-ld.gold LLVM_AR=$CLANG_PATH/bin/llvm-ar LLVM_DIS=$CLANG_PATH/bin/llvm-dis CC=$CLANG_PATH/bin/clang"
