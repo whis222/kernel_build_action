@@ -116,6 +116,27 @@ runs:
 
          echo "::endgroup::"
 
+         echo "::group:: Downloading 3rd clang"
+         export OTHER_CLANG_URL=${{ inputs.other-clang-url }}
+         mkdir clang
+         git clone --recursive "$OTHER_CLANG_URL" $HOME/clang --depth=1 -b ${{ inputs.other-clang-branch }}
+         echo "::endgroup::"
+
+         if [ ${{ inputs.python-27 }} = true ]; then
+             echo "::group:: Installing Python2.7 instead Python3"
+             if ! sudo apt-cache search python2.7 | grep -i python2.7 >>/dev/null; then
+                 echo "deb [trusted=yes] https://deb.debian.org/debian/ bullseye main contrib non-free" | sudo tee -a /etc/apt/sources.list >/dev/null
+                 sudo apt-get update
+             fi
+             sudo apt-get install -y python2.7 python2.7-minimal
+             test -f /bin/python && sudo rm -v /bin/python
+             test -f /bin/python || sudo ln -v -s /bin/python2.7 /bin/python
+             test -f /bin/python2 || sudo ln -v -s /bin/python2.7 /bin/python2
+             echo "::endgroup::"
+             grep -i "bullseye" /etc/apt/sources.list >>/dev/null && sudo sed '$d' /etc/apt/sources.list >>/dev/null
+         fi
+
+
          echo "::group:: Pulling Kernel Source"
          git clone --recursive ${{ inputs.kernel-url }} -b "${{ inputs.kernel-branch }}" --depth=1 kernel/${{ inputs.kernel-dir }}
          echo "::endgroup::"
@@ -211,6 +232,23 @@ runs:
              fi
              echo "::endgroup::"
          fi
+
+         echo "::group:: Building Kernel with selected cross compiler"
+         mkdir out -p -v
+         export CLANG_PATH=$HOME/clang
+         COMMAND="make -j$(nproc --all) ${{ inputs.config }} ARCH=${{ inputs.arch }} all O=out"
+         COMMAND+=" ${{ inputs.extra-cmd }}"
+         ${COMMAND}
+         echo "::endgroup::"
+         unset CLANG_TRIPLE COMPILE_ARM32 CROSS_COMPILE CLANG_PATH HOMES SUBLEVEL KVER COMMAND
+
+    - id: upload-image
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel.image
+        path: /home/runner/work/kernel_build_action/kernel_build_action/kernel/kernel/out/arch/${{ inputs.arch }}/boot/Image
+        if-no-files-found: error
+        overwrite: true
 
 posts:
   using: 'composite'
