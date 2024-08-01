@@ -38,7 +38,7 @@ inputs:
     default: false
   ksu-version:
     description: 'KernelSU default branch'
-    required: true
+    required: false
     default: "v0.9.4"
   ksu-lkm:
     description: "Build KernelSU as a loadable kernel module"
